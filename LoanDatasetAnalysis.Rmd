@@ -1,0 +1,803 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+options(repos = c(CRAN = "http://cran.us.r-project.org"))
+
+```
+
+
+```{r}
+install.packages("regclass")
+install.packages("regclass")
+install.packages("caret")
+install.packages("car")  
+install.packages("pROC") 
+install.packages("dplyr")
+
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+library(caret)
+library(car)        
+library(pROC)
+library(MASS)
+```
+
+# Exploring the data 
+```{r}
+#Reading the data
+df <- read.csv("loan_data 2.csv")
+#head(df)
+#names(df)
+#Checking the Datatypes
+#str(df)
+
+#Descriptive statistics
+summary(df)
+
+#Based on the summary statistic we can see that the max person's age as 144 which seems pretty unlikely, similarly for the person_emp_exp as 125 is very very unlikely, so further exploring the two columns.
+
+```
+
+#CLEANING THE DATA- that includes removing some rows and checking for the null values
+```{r}
+
+#Changing the person's age to integer from the number
+df$person_age <- as.integer(df$person_age)
+class(df$person_age)
+
+## Removing the data that seems unreal like data above the age of 100 the person exp ranging from 85 years to 125
+df <- df[df$person_age <= 100, ]
+
+#Counting the null values in the each column
+#colSums(is.na(df))
+# The data had no no null values
+
+
+```
+
+#LOOKING AT THE DISTRIBUTION OF THE VARAIBLES
+```{r}
+
+# Bar plots for categorical variables
+ggplot(df, aes(x = person_gender)) + 
+  geom_bar(fill = "lightcoral") + 
+  ggtitle("Distribution of Gender") + xlab("Gender") + ylab("Count")
+
+ggplot(df, aes(x = person_education)) + 
+  geom_bar(fill = "lightgreen") + 
+  ggtitle("Distribution of Education") + xlab("Education Level") + ylab("Count")
+
+ggplot(df, aes(x = loan_intent)) + 
+  geom_bar(fill = "orange") + 
+  ggtitle("Distribution of Loan Intent") + xlab("Loan Intent") + ylab("Count")
+
+
+
+# Looping  through each numeric column  to see the distribution of the column
+for(column_name in names(df)) {
+  if(is.numeric(df[[column_name]])) {
+    boxplot(df[[column_name]], main = paste("Box Plot of", column_name), ylab = column_name)
+    cat("Press [enter] to continue:\n")
+    readline()
+  }
+}
+
+
+```
+
+
+
+## Density Estimation
+```{r}
+# List of numerical variables for density estimation
+variables <- c("person_income", "loan_int_rate", "loan_percent_income", 
+               "credit_score", "loan_amnt", "cb_person_cred_hist_length")
+
+# Function to create density plot
+create_density_plot <- function(data, variable) {
+  ggplot(data, aes_string(x = variable)) +
+    geom_histogram(aes(y = ..density..), bins = 30, fill = "lightgrey", color = "black") +
+    geom_density(color = "blue", size = 1.2) +
+    ggtitle(paste("Density Estimation for", variable)) +
+    xlab(variable) +
+    ylab("Density") +
+    theme_minimal()
+}
+
+# Looping through variables and plot
+for (variable in variables) {
+  print(create_density_plot(df, variable))
+}
+
+#What does the distribution of  look like:
+#1) Person Income:(APPLY LOG TRANFORMATION )
+#The data is heavily right-skewed. A significant portion of person_income values is concentrated near the lower range, while a few extreme values (outliers) exist on the higher end.
+#Most individuals have relatively low income, as evident from the high density at the lower end of the x-axis.
+
+
+#2) lOAN INTEREST RATE:
+#that the loan interest rates is unimodal with a right skew (the tail stretches more to the right).
+#The right skew indicates that while most loans have interest rates around the peak, there are some loans with higher rates 
+#For logistic regression do the log transformation which is not needed for the non parametric test that we want to do.
+
+#3) LOAN_PERCENT_INCOME: -- CHECK TO SEE IF THE PERSON WITH HIGHER LOAN _PERCENT OF THEIR ICOME DEFAULT?
+
+#The distribution is slightly right-skewed, with most values concentrated towards the lower end.
+#The peak occurs around a relatively low value, indicating that many individuals are borrowing loans that take up only a small fraction of their income.
+#The long tail on the right side suggests that there are individuals who allocate a significantly higher percentage of their income to loans, though they are less frequent.
+
+#4) CREDIT SCORE:
+#Since the distribution is close to normal, a transformation is likely unnecessary unless further analyses show a specific need.
+
+#5) LOAN AMOUNT: -- NEED LOG TRANSFORMATION
+#The distribution is multi-modal, indicating that there are common loan amounts that many individuals apply for, such as near $10,000 and $20,000. This could suggest specific thresholds or common amounts for loan applications.
+#he distribution shows that most loans are concentrated in the lower ranges (below $20,000). The density decreases as the loan amount increases, which is typical because fewer people tend to take very high loans.
+
+#6) cb_person_cred_hist_length
+#The majority of values are concentrated on the lower end (closer to 0-10).
+#The tail extends to the right, with a few larger values (above 20).
+
+
+#SUMMARY 
+#Apply log transformation to:
+#person_income
+#loan_percent_income
+#loan_amnt
+#cb_person_cred_hist_length
+
+#No transformation needed for:
+#loan_int_rate
+#credit_score
+
+```
+
+
+
+#  Density Estimation of Income by Loan Status
+```{r}
+# Log-Scale Transformation for Income
+ggplot(df, aes(x = log(person_income + 1), fill = factor(loan_status, levels = c(0, 1), labels = c("Denied", "Approved")))) +
+  geom_density(alpha = 0.5) +
+  ggtitle("Log-Scaled Density Estimation of Income by Loan Status") +
+  xlab("Log(Person Income)") +
+  ylab("Density") +
+  theme_minimal() +
+  scale_fill_manual(values = c("red", "green")) +
+  labs(fill = "Loan Status")
+
+#The distribution of income for approved loans is shifted to the right compared to denied loans, suggesting that higher incomes are associated with a greater likelihood of loan approval.
+#The overlap indicates that some applicants with similar incomes receive different loan decisions, likely due to other factors like credit score, loan amount, or credit history.
+```
+# Credit Score Density Plot
+```{r}
+ggplot(df, aes(x = credit_score, fill = factor(loan_status, levels = c(0, 1), labels = c("Denied", "Approved")))) +
+  geom_density(alpha = 0.5) +
+  ggtitle("Density Estimation of Credit Score by Loan Status") +
+  xlab("Credit Score") +
+  ylab("Density") +
+  theme_minimal() +
+  scale_fill_manual(values = c("red", "green")) + # Red for Denied, Green for Approved
+  labs(fill = "Loan Status")
+
+
+```
+
+
+##After looking at the distribution of the continous varaible,  it would be appropraite to do the transformation and scaling of data beacuse of the skewness and uneveness 
+```{r}
+# log transformation and Standardizing person_income
+df$person_income_log <- log(df$person_income)
+df$person_income_standardized <- scale(df$person_income_log)
+
+# log transformation and Standardizing loan_amnt_log 
+df$loan_amnt_log <- log(df$loan_amnt)
+df$loan_amnt_scaled <- scale(df$loan_amnt_log)
+
+# Standardizing loan_int_rate
+df$loan_int_rate_scaled <- scale(df$loan_int_rate)
+
+# Standardize credit_score
+df$credit_score_scaled <- scale(df$credit_score)
+
+#  log transformation and Standardizing loan_percent_income
+df$loan_percent_income_log <- log(df$loan_percent_income + 1) 
+df$loan_percent_income_scaled <- scale(df$loan_percent_income_log)
+
+# log transformation and Standardizing person_cred_hist_length
+df$cb_person_cred_hist_length_log <- log(df$cb_person_cred_hist_length + 1) 
+df$cb_person_cred_hist_length_scaled <- scale(df$cb_person_cred_hist_length_log)
+
+
+```
+
+
+
+
+# Nonparametric Smoothing: Loan Interest Rate vs Log(Person Income) (Resampled Data)
+```{r}
+# Resampling the data for LOESS smoothing
+set.seed(123)
+sampled_df <- df[sample(nrow(df), 10000), ]
+
+# Plot with resampled data
+ggplot(sampled_df, aes(x = person_income_log, y = loan_int_rate)) +
+  geom_point(alpha = 0.2, color = "blue") + 
+  geom_smooth(
+    method = "loess",
+    color = "red",
+    se = TRUE,
+    span = 0.7,
+    size = 1.5
+  ) +
+  labs(
+    title = "LOESS Smoothing: Loan Interest Rate vs Log(Income) (Resampled Data)",
+    x = "Log(Person Income)",
+    y = "Loan Interest Rate (%)"
+  ) +
+  theme_minimal()
+
+#Interpretation:
+#There seems to be minimal variation in loan interest rates across most income ranges, indicating weak dependency.
+#At the higher end of income, there is a slight upward trend, but the confidence interval widens, suggesting higher uncertainty.
+#The lack of strong variation suggests that income alone might not be a major determinant of interest rates in this dataset.
+#It appears that the loan interest rate does not vary significantly with log(income) in the denser regions.
+
+```
+
+#Nonparametric Smoothing: Loan Interest Rate vs Credit Score (Resampled Data)
+```{r}
+
+#Do higher credit scores correspond to lower interest rates?
+
+sampled_df <- df[sample(nrow(df), 10000), ] 
+ggplot(sampled_df, aes(x = credit_score, y = loan_int_rate)) +
+  geom_point(alpha = 0.2, color = "blue", size = 0.5) +
+  geom_smooth(
+    method = "loess",
+    color = "red",
+    se = TRUE,
+    span = 0.5,
+    size = 1.5
+  ) +
+  labs(
+    title = "LOESS Smoothing: Loan Interest Rate vs Credit Score",
+    x = "Credit Score",
+    y = "Loan Interest Rate (%)"
+  ) +
+  theme_minimal()
+
+#Interpretation:
+#This indicates that credit scores have minimal direct influence on loan interest rates in this dataset.
+
+
+```
+
+
+# Exploring the data 
+```{r}
+
+# Creating  age bins
+df$age_group <- cut(
+  df$person_age,
+  breaks = c(20, 25, 30, 40, 50, 60, 70, 80, 90, 100), 
+  labels = c("20-25", "26-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90", "90-100"),
+  include.lowest = TRUE
+)
+
+print(table(df$age_group))
+
+# loan intent by  age bins
+filtered_data <- df %>% filter(age_group %in% c("20-25", "26-30", "30-40", "40-50"))
+
+# Summarize loan intent for each age group
+loan_intent_summary <- filtered_data %>%
+  group_by(age_group, loan_intent) %>%
+  summarize(count = n()) %>%
+  arrange(age_group, desc(count))
+print(loan_intent_summary)
+
+# Loan intent distribution
+ggplot(loan_intent_summary, aes(x = loan_intent, y = count, fill = age_group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  ggtitle("Loan Intent by Age Group (20-25, 26-30, 30-40, 40-50)") +
+  xlab("Loan Intent") +
+  ylab("Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "green", "orange", "purple"))
+
+
+## Interpretation:
+# People in the age group 20 -25 take loans mostly for the education and then rest of the age group have the from 26- 50 has main reason as medical for the loan 
+
+
+# Analyzing previous loan default patterns by  age bins
+defaults_summary <- filtered_data %>%
+  group_by(age_group, previous_loan_defaults_on_file) %>%
+  summarize(count = n()) %>%
+  arrange(age_group, desc(count))
+print(defaults_summary)
+
+#visualizaing
+ggplot(defaults_summary, aes(x = previous_loan_defaults_on_file, y = count, fill = age_group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  ggtitle("Defaults by Age Group (20-25, 26-30, 30-40, 40-50)") +
+  xlab("Previous Loan Defaults (0 = No, 1 = Yes)") +
+  ylab("Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "green", "orange", "purple")) 
+
+#Interpretation:
+#There is not much difference in the loan defaulters in different age group , it is almost equal number of people defaulting the loans
+```
+
+
+#How does the loan intent vary across different loan defaulters 
+```{r}
+
+# Filtering data for defaulters (previous_loan_defaults_on_file == "Yes")
+defaulters_data <- df %>% filter(previous_loan_defaults_on_file == "Yes")
+
+# Summarizing loan intent for defaulters
+defaulters_intent_summary <- defaulters_data %>%
+  group_by(loan_intent) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+
+print(defaulters_intent_summary)
+
+# Visualization: Loan intents for defaulters
+ggplot(defaulters_intent_summary, aes(x = loan_intent, y = count, fill = loan_intent)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Loan Intent Distribution Among Defaulters") +
+  xlab("Loan Intent") +
+  ylab("Count of Defaulters") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+#Based on the data, most loans are taken for education, and as a result, education loans account for a significant number of defaults. However, an interesting observation emerges: although fewer people take loans for venture capital purposes, the proportion of defaults in this category is higher than in other groups. This indicates that venture capital loans may carry a greater risk of default relative to other loan intents. Calculating the odds ratio allows us to better understand the relative likelihood of default across different loan intents, providing valuable insights into high-risk categories.
+
+
+```
+
+
+```{r}
+# Summarizing defaults for each loan intent
+default_odds <- df %>%
+  group_by(loan_intent) %>%
+  summarize(
+    defaults = sum(previous_loan_defaults_on_file == "Yes", na.rm = TRUE),
+    non_defaults = sum(previous_loan_defaults_on_file == "No", na.rm = TRUE),
+    odds = defaults / non_defaults  # Calculate odds of default
+  ) %>%
+  arrange(desc(odds))
+
+#odds for each loan intent
+print(default_odds)
+
+# odds ratio relative to a baseline category education 
+baseline_odds <- default_odds$odds[default_odds$loan_intent == "EDUCATION"]
+default_odds <- default_odds %>%
+  mutate(odds_ratio = odds / baseline_odds)
+
+print(default_odds)
+
+# Visualization: Odds Ratios by Loan Intent
+ggplot(default_odds, aes(x = loan_intent, y = odds_ratio, fill = loan_intent)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Odds Ratios of Default by Loan Intent (Baseline: EDUCATION)") +
+  xlab("Loan Intent") +
+  ylab("Odds Ratio") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+##The odds ratio chart reveals that venture loans have the highest odds of default compared to the baseline category (education loans). While education loans are the most common, they have relatively moderate default odds. Conversely, debt consolidation loans show the lowest odds of default, indicating that borrowers in this category are less likely to default than those in other groups. This insight suggests that loan intent is a significant factor influencing default risk, with venture loans requiring closer scrutiny.
+```
+
+
+
+#Analyzing the relation between loan amount and Person's Income
+```{r}
+# Scatter plot of loan amount vs. income
+ggplot(df, aes(x = person_income, y = loan_amnt)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_smooth(method = "lm", color = "red") +  
+  ggtitle("Scatter Plot of Loan Amount vs. Income") + 
+  xlab("Person Income") +  # X-axis label
+  ylab("Loan Amount") +  # Y-axis label
+  theme_minimal()  # Minimal theme
+
+
+# Scatter plot with log transformation
+ggplot(df, aes(x = person_income_log, loan_amnt_log )) + 
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_smooth(method = "lm", color = "red") + 
+  ggtitle("Scatter Plot of Log(Loan Amount) vs. Log(Income)") + 
+  xlab("Log(Person Income)") +  # X-axis label
+  ylab("Log(Loan Amount)") +  # Y-axis label
+  theme_minimal()  # Minimal theme
+
+#names(df)
+
+# Further analyzing the relation between loan amount and income
+model <- lm(loan_amnt_log ~ person_income_log, data = df)
+summary(model)
+
+#After the log transformation we can see that there is a positive relation between the person income and the loan amount. Higher incomes are generally linked to higher loan amounts.
+
+
+#There is a statistically significant, positive relationship between income and loan amount, where higher incomes are associated with higher loan amounts.
+
+```
+
+
+# Finding the poeple with the highest loan amount and seeing how that is relates to the credit score and interest rate 
+```{r}
+#  rows with the highest loan amount
+highest_loan_data <- df %>% filter(loan_amnt == max(loan_amnt, na.rm = TRUE))
+
+#There were multiple different people with the the same amount of loan 
+
+# Group by loan intent 
+highest_loan_summary <- highest_loan_data %>%
+  group_by(loan_intent) %>%
+  summarize(
+    avg_credit_score = mean(credit_score, na.rm = TRUE),  
+    avg_interest_rate = mean(loan_int_rate, na.rm = TRUE),
+    count = n()                                           
+  )
+print(highest_loan_summary)
+
+# Visualization: Credit score and interest rate differences across loan intents
+ggplot(highest_loan_summary, aes(x = loan_intent)) +
+  geom_bar(aes(y = avg_credit_score, fill = loan_intent), stat = "identity", position = "dodge") +
+  geom_point(aes(y = avg_interest_rate * 10), size = 3, color = "red") +  # Scaled for comparison
+  geom_text(aes(y = avg_credit_score, label = round(avg_credit_score, 1)), vjust = -0.5) +
+  ggtitle("Credit Scores and Interest Rates for Highest Loan Amount") +
+  xlab("Loan Intent") +
+  ylab("Average Credit Score (Bar) / Interest Rate (Red Dot x10)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3")
+
+#Interpretation
+#Borrowers with personal loans have the highest average credit score (637.8), indicating that individuals taking personal loans tend to have relatively better creditworthiness.
+#Borrowers with medical loans have the lowest average credit score (618.8), suggesting that individuals taking medical loans might be in more financially vulnerable situations or have lower creditworthiness compared to other intents.
+
+#Interest rates are consistent across all loan intents, with slight variations. This could imply that despite differences in credit scores, interest rates for the highest loan amounts do not vary significantly across loan intents.The minimal variation in interest rates could indicate a fixed-rate policy for high loan amounts, independent of creditworthiness.
+
+
+```
+
+#Segmentation: Analyzing Default Rates Across Loan Intents by Credit Score and Income
+```{r}
+# credit score categories
+df$credit_score_category <- cut(
+  df$credit_score,
+  breaks = c(0, 580, 670, 740, 850),
+  labels = c("Poor", "Fair", "Good", "Excellent"),
+  include.lowest = TRUE
+)
+
+# income groups
+df$income_group <- cut(
+  df$person_income,
+  breaks = c(0, 50000, 100000, 200000, 7200766 ),  # Define income ranges
+  labels = c("Low", "Medium", "High", "Very High"),
+  include.lowest = TRUE
+)
+
+
+# Group by loan intent, credit score category, and income group
+segmented_defaults <- df %>%
+  group_by(loan_intent, credit_score_category, income_group) %>%
+  summarize(
+    total_loans = n(),
+    defaults = sum(previous_loan_defaults_on_file == "Yes", na.rm = TRUE),
+    default_rate = (defaults / total_loans) * 100
+  ) %>%
+  arrange(desc(default_rate))
+print(segmented_defaults)
+
+
+ggplot(segmented_defaults, aes(x = credit_score_category, y = default_rate, fill = loan_intent)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ income_group) +  # Separate by income group
+  ggtitle("Default Rates by Credit Score Category and Loan Intent") +
+  xlab("Credit Score Category") +
+  ylab("Default Rate (%)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+##Not to significant 
+
+```
+
+#To examine how loan intent varies between genders
+```{r}
+# Grouping data by gender and loan intent
+loan_intent_by_gender <- df %>%
+  group_by(person_gender, loan_intent) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  arrange(person_gender, desc(count))
+print(loan_intent_by_gender)
+
+# Visualization
+ggplot(loan_intent_by_gender, aes(x = loan_intent, y = count, fill = person_gender)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  ggtitle("Loan Intent Distribution by Gender") +
+  xlab("Loan Intent") +
+  ylab("Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("pink", "blue"))  
+
+##No intresting findings 
+
+```
+
+
+#ANOVA TEST TO SEE IF THERE IS ASSOCIATION BETWEEN THE loan_intent and loan_interest_rate AND loan_intent and defaults_on_file impact the loan_int_rate
+```{r}
+
+# CHANGED ALL THE COLUMNS THAT WHERE CHARACTER TO FACTOR
+df <- df %>% mutate(across(where(is.character), as.factor))
+
+#loan_status to factor
+df$loan_status <- as.factor(df$loan_status)
+
+
+
+## Relation between the  loan_intent and loan_interest_rate 
+anova_result <- aov(loan_int_rate ~ loan_intent, data = df)
+summary(anova_result)
+
+
+#Conducting a post-hoc test 
+tukey_result <- TukeyHSD(anova_result)
+print(tukey_result)
+print(tukey_result$loan_intent)
+
+# Visualizing the relation between the loan_intent and loan_int_rate 
+boxplot(loan_int_rate ~ loan_intent, data = df,
+        main = "Boxplot of loan Interest Rate by Loan Intent",
+        xlab = "Loan Intent", ylab = "loan Interest Rate",
+        col = "lightblue")
+
+##The analysis confirms that Loan Intent significantly influences the interest rate. Tukey's HSD test identified specific pairwise differences, particularly involving categories like HOMEIMPROVEMENT, EDUCATION, and VENTURE. These differences are visually supported by the boxplot, which highlighted noticeable shifts in medians and some degree of overlap among certain groups.
+
+
+# Also wanted to see if loan_intent and defaults_on_file impact the loan_int_rate
+anova2 <- aov(loan_int_rate ~ loan_intent*previous_loan_defaults_on_file , data = df)
+summary(anova2)
+
+#Loan Intent:
+#Loan purpose significantly impacts interest rates.
+#Certain types of loans (e.g., medical, education) might be associated with higher or lower interest rates based on risk profiles.
+
+#Previous Loan Defaults:
+#Borrowers with previous defaults are charged significantly higher interest rates, likely reflecting their increased risk.
+
+#Interaction:
+#The impact of loan intent on interest rates varies depending on whether the borrower has a history of defaults.
+#This suggests that lenders adjust interest rates dynamically based on a combination of loan purpose and borrower history.
+
+
+library(ggplot2)
+ggplot(df, aes(x = loan_intent, y = loan_int_rate, fill = previous_loan_defaults_on_file)) +
+  geom_boxplot() +
+  labs(title = "Loan Interest Rates by Loan Intent and Default History",
+       x = "Loan Intent", y = "Interest Rate") +
+  theme_minimal()
+
+
+```
+
+#Created a plot to visualize which loan intents are associated with higher loan interest rates:
+```{r}
+
+# Group the data by loan_intent and calculate mean interest rates
+summary_data <- aggregate(loan_int_rate ~ loan_intent, data = df, mean)
+
+# Create the plot
+ggplot(summary_data, aes(x = reorder(loan_intent, -loan_int_rate), y = loan_int_rate)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = round(loan_int_rate, 2)), vjust = -0.5, size = 4) +
+  labs(
+    title = "Average Loan Interest Rates by Loan Intent",
+    x = "Loan Intent",
+    y = "Average Loan Interest Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Even though most of the customers had loan related to education , education loan have the least average interest rate which is interesting.
+```
+
+
+#  two-way ANOVA to see if the loan_intent and person_home_ownership had effect on loan amount.
+```{r}
+anova_loan_amnt <- aov(loan_amnt ~ loan_intent * person_home_ownership, data = df)
+summary(anova_loan_amnt)
+
+# Interaction plot for visualization
+interaction.plot(df$loan_intent, df$person_home_ownership, df$loan_amnt,
+                 col = rainbow(length(unique(df$person_home_ownership))),
+                 main = "Interaction Plot: Loan Amount by Loan Intent and Home Ownership",
+                 xlab = "Loan Intent", ylab = "Loan Amount")
+
+##Interpretation:
+#Both loan intent and home ownership status independently have strong effects on the loan amount.There is also a significant interaction effect, meaning that the relationship between loan intent and loan amount changes depending on home ownership status.
+
+
+```
+
+#LOGISTIC REGRESSION
+```{r}
+# Selecting  scaled columns and creating a new table 
+df_logistics <- df[, c(
+  "person_age",
+  "person_gender",
+  "person_education",
+  "person_income_standardized",
+  "person_emp_exp",
+  "person_home_ownership",
+  "loan_amnt_scaled",
+  "loan_intent",
+  "loan_int_rate_scaled",
+  "loan_percent_income_scaled",
+  "cb_person_cred_hist_length_scaled",
+  "credit_score_scaled",
+  "previous_loan_defaults_on_file",
+  "loan_status"
+)]
+
+
+
+##Looking at the correlation between the columns 
+df_numeric <- df_logistics %>% select_if(is.numeric)
+cor_matrix <- cor(df_numeric)
+print(cor_matrix)
+
+# Finding the pairs with correlation > 0.5
+cor_pairs <- which(abs(cor_matrix) > 0.5 & cor_matrix != 1, arr.ind = TRUE)
+
+#  variable pairs and their correlations
+cor_pairs_result <- data.frame(
+  Variable1 = rownames(cor_matrix)[cor_pairs[, 1]],
+  Variable2 = colnames(cor_matrix)[cor_pairs[, 2]],
+  Correlation = cor_matrix[cor_pairs]
+)
+
+print(cor_pairs_result)
+
+
+```
+
+##  Logistic Regression 
+```{r}
+
+# Full model
+full_model <- glm(loan_status ~ ., data = df_logistics, family = "binomial")
+summary(full_model)
+
+# Step wise selection
+stepwise_model <- stepAIC(full_model, direction = "both")
+
+# Summary of the stepwise model
+summary(stepwise_model)
+
+```
+
+
+```{r}
+
+##Based on the best fit model given by the stepwise selectioN
+# final model work
+revised_model1 <- glm(
+  loan_status ~ person_age + person_gender + person_income_standardized + 
+    person_emp_exp + person_home_ownership + loan_amnt_scaled + 
+    loan_intent + loan_int_rate_scaled + loan_percent_income_scaled + 
+    cb_person_cred_hist_length_scaled + credit_score_scaled + 
+    previous_loan_defaults_on_file,
+  data = df_logistics,
+  family = "binomial"
+)
+
+summary(revised_model1)
+
+# Calculate VIF
+vif_values <- vif(revised_model1)
+print(vif_values)
+
+
+```
+
+
+```{r}
+#Variables like person_age_standardized, person_emp_exp, loan_amnt_scaled, and loan_percent_income_scaled have high corelation with others.
+
+## fitting new model without person_age_standardized, person_emp_exp
+
+revised_model2 <- glm(
+  loan_status ~ person_income_standardized + 
+   person_home_ownership + loan_amnt_scaled + 
+    loan_intent + loan_int_rate_scaled + loan_percent_income_scaled + 
+   credit_score_scaled + 
+    previous_loan_defaults_on_file,
+  data = df_logistics,
+  family = "binomial"
+)
+
+vif_values <- vif(revised_model2)
+print(vif_values)
+
+```
+
+```{r}
+##After few iterations got the predictors for the logistic regression 
+
+final_model <- glm(
+  loan_status ~ person_income_standardized + person_home_ownership +
+    loan_percent_income_scaled + loan_intent + loan_int_rate_scaled +
+    credit_score_scaled + previous_loan_defaults_on_file,
+  data = df_logistics,
+  family = "binomial"
+)
+
+#loan_amnt_scaled
+
+summary(final_model)
+vif(final_model)
+#Intrepretation:
+
+#Income and Loan Percent Income:
+#The contrasting effects of these variables suggest that while higher incomes decrease loan approval likelihood, larger loans relative to income increase approval probability. This could point to different risk assessment strategies for higher-income applicants.
+
+#Loan Intent:
+#Loans for education, venture, and personal purposes are associated with lower approval probabilities, potentially reflecting their perceived risk.
+
+#Loan Interest Rate:
+#Higher interest rates are positively associated with loan approval, possibly indicating a trade-off between risk and return for lenders.
+
+```
+```{r}
+# Generated predicted probabilities from the logistic regression model
+pred_probs <- predict(final_model, type = "response")
+pred_classes <- ifelse(pred_probs > 0.5, 1, 0)
+
+# ROC curve
+roc_curve <- roc(df_logistics$loan_status, pred_probs)
+plot(roc_curve, main = "ROC Curve for Logistic Regression")
+
+#  AUC value
+auc_value <- auc(roc_curve)
+cat("Area Under the Curve (AUC):", auc_value, "\n")
+
+#  confusion matrix to evaluate classification performance
+confusion_matrix <- confusionMatrix(
+  as.factor(pred_classes), 
+  as.factor(df_logistics$loan_status)  
+)
+print(confusion_matrix)
+
+
+
+```
+
