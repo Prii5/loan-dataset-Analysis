@@ -36,6 +36,7 @@ The distribution of person income is heavily right skewed, with a large portion 
 
 
 The loan interest rate distribution is unimodal with a noticeable right skew, meaning the tail extends towards higher values. While most loans cluster around the peak interest rate, there are some loans with significantly higher rates.
+
 <img width="223" alt="image" src="https://github.com/user-attachments/assets/608a9584-9621-42da-ad8f-c0c9165d7f2a" />
 
 
